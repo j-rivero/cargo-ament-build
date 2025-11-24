@@ -3,7 +3,7 @@ name: 'Build Debian Package'
 on:
   push:
     branches:
-      - main
+      - jrivero/deb_package_cargo
     tags:
       - '*'
   pull_request:
