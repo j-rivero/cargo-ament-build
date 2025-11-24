@@ -1,0 +1,74 @@
+name: 'Build Debian Package'
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Build debian package
+        run: cargo deb --no-build
+
+      - name: Get package info
+        id: package_info
+        run: |
+          PACKAGE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
+          PACKAGE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          DEB_FILE="${PACKAGE_NAME}_${PACKAGE_VERSION}_amd64.deb"
+          echo "package_name=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "package_version=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
+          echo "deb_file=${DEB_FILE}" >> $GITHUB_OUTPUT
+          echo "deb_path=target/debian/${DEB_FILE}" >> $GITHUB_OUTPUT
+
+      - name: Verify debian package
+        run: |
+          echo "Debian package contents:"
+          dpkg -c ${{ steps.package_info.outputs.deb_path }}
+          echo ""
+          echo "Package information:"
+          dpkg -I ${{ steps.package_info.outputs.deb_path }}
+
+      - name: Upload debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package_info.outputs.package_name }}-deb
+          path: ${{ steps.package_info.outputs.deb_path }}
+          retention-days: 30
+
+      - name: Upload to release (if tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package_info.outputs.deb_path }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -36,3 +36,22 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "aarch64-unknown
 [workspace.metadata.dist.github-custom-runners]
 aarch64-unknown-linux-gnu = "buildjet-8vcpu-ubuntu-2204-arm"
 aarch64-unknown-linux-musl = "buildjet-8vcpu-ubuntu-2204-arm"
+
+# Config for 'cargo deb' - Debian package generation
+[package.metadata.deb]
+maintainer = "Nikolai Morin <nnmmgit@gmail.com>"
+copyright = "2023, Nikolai Morin <nnmmgit@gmail.com>"
+license-file = ["LICENSE", "4"]
+extended-description = """\
+A Cargo plugin for use with colcon workspaces. This tool is a wrapper \
+around 'cargo build' which installs build artifacts in a layout expected \
+by ament and ROS 2 tools. It can be used standalone or through \
+colcon-ros-cargo."""
+depends = "$auto"
+section = "devel"
+priority = "optional"
+assets = [
+  ["target/release/cargo-ament-build", "usr/bin/", "755"],
+  ["README.md", "usr/share/doc/cargo-ament-build/", "644"],
+  ["LICENSE", "usr/share/doc/cargo-ament-build/", "644"],
+]
