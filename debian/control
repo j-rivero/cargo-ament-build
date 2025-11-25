@@ -2,9 +2,9 @@ Source: cargo-ament-build
 Maintainer: Esteve Fernandez <esteve@apache.org>
 Section: python
 Priority: optional
-Build-Depends: dh-python, python3-setuptools, python3-setuptools-rust, python3-all-dev, debhelper (>= 9)
+Build-Depends: dh-python, python3-setuptools, python3-setuptools-rust, python3-all-dev, debhelper (>= 13), cargo, rustc
 Standards-Version: 3.9.1
-Homepage: None
+Homepage: https://github.com/colcon/cargo-ament-build
 X-Python3-Version: >= 3.6
 
 Package: python3-cargo-ament-build
