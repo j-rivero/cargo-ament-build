@@ -11,5 +11,11 @@ Package: python3-cargo-ament-build
 Architecture: any
 Depends: ${misc:Depends}, ${python3:Depends}, ${shlibs:Depends}
 Description: Cargo plugin for use with colcon workspaces
- Cargo plugin for use with colcon workspaces
+ This cargo plugin is a wrapper around cargo build which installs build
+ artifacts in a layout expected by ament and ROS 2 tools.
+ .
+ It can be used standalone or through colcon-ros-cargo. The plugin builds
+ or checks the package depending on whether it contains any binaries, copies
+ the source code and binaries to appropriate locations in the install base,
+ and places marker files in the ament index.
 
