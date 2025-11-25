@@ -16,8 +16,5 @@ override_dh_auto_build:
 override_dh_auto_install:
 	python3 setup.py install --force --root=debian/python3-cargo-ament-build --no-compile -O0 --install-layout=deb --prefix=/usr 
 
-override_dh_python2:
-	dh_python2 --no-guessing-versions
-
 override_dh_strip:
 	dh_strip --no-automatic-dbgsym
