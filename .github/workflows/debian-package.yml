@@ -2,9 +2,9 @@ name: Build Debian Package
 
 on:
   push:
-    branches: [ "main", "jrivero/add-stdeb" ]
+    branches: ["main", "jrivero/add-stdeb"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -19,80 +19,80 @@ jobs:
             arch: arm64
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Copy contrib/debian to debian
-      run: cp -r contrib/debian debian
+      - name: Copy contrib/debian to debian
+        run: cp -r contrib/debian debian
 
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
-      with:
-        platforms: arm64
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    - name: Build Debian package in Docker
-      run: |
-        PLATFORM="${{ matrix.arch == 'arm64' && 'linux/arm64' || 'linux/amd64' }}"
+      - name: Build Debian package in Docker
+        run: |
+          PLATFORM="${{ matrix.arch == 'arm64' && 'linux/arm64' || 'linux/amd64' }}"
 
-        cat > Dockerfile.build <<'EOF'
-        FROM ubuntu:${{ matrix.distro }}
+          cat > Dockerfile.build <<'EOF'
+          FROM ubuntu:${{ matrix.distro }}
 
-        ENV DEBIAN_FRONTEND=noninteractive
+          ENV DEBIAN_FRONTEND=noninteractive
 
-        RUN apt-get update && apt-get install -y \
-            build-essential \
-            debhelper \
-            dh-python \
-            python3-all-dev \
-            python3-setuptools \
-            python3-setuptools-rust \
-            cargo \
-            rustc \
-            dpkg-dev \
-            && rm -rf /var/lib/apt/lists/*
+          RUN apt-get update && apt-get install -y \
+              build-essential \
+              debhelper \
+              dh-python \
+              python3-all-dev \
+              python3-setuptools \
+              python3-setuptools-rust \
+              cargo \
+              rustc \
+              dpkg-dev \
+              && rm -rf /var/lib/apt/lists/*
 
-        WORKDIR /build
-        COPY . .
+          WORKDIR /build
+          COPY . .
 
-        RUN dpkg-buildpackage -us -uc -b
+          RUN dpkg-buildpackage -us -uc -b
 
-        EOF
+          EOF
 
-        docker build --platform="$PLATFORM" -f Dockerfile.build -t debian-builder:${{ matrix.distro }}-${{ matrix.arch }} .
+          docker build --platform="$PLATFORM" -f Dockerfile.build -t debian-builder:${{ matrix.distro }}-${{ matrix.arch }} .
 
-        # Extract the built packages
-        docker create --name temp-container debian-builder:${{ matrix.distro }}-${{ matrix.arch }}
-        docker cp temp-container:/python3-cargo-ament-build_*.deb . || true
-        docker cp temp-container:/build/../*.deb . || true
-        docker rm temp-container
+          # Extract the built packages
+          docker create --name temp-container debian-builder:${{ matrix.distro }}-${{ matrix.arch }}
+          docker cp temp-container:/python3-cargo-ament-build_*.deb . || true
+          docker cp temp-container:/build/../*.deb . || true
+          docker rm temp-container
 
-    - name: List built packages
-      run: ls -lh *.deb || echo "No .deb files found"
+      - name: List built packages
+        run: ls -lh *.deb || echo "No .deb files found"
 
-    - name: Test package installation
-      run: |
-        PLATFORM="${{ matrix.arch == 'arm64' && 'linux/arm64' || 'linux/amd64' }}"
+      - name: Test package installation
+        run: |
+          PLATFORM="${{ matrix.arch == 'arm64' && 'linux/arm64' || 'linux/amd64' }}"
 
-        cat > Dockerfile.test <<'EOF'
-        FROM ubuntu:${{ matrix.distro }}
+          cat > Dockerfile.test <<'EOF'
+          FROM ubuntu:${{ matrix.distro }}
 
-        ENV DEBIAN_FRONTEND=noninteractive
+          ENV DEBIAN_FRONTEND=noninteractive
 
-        RUN apt-get update && apt-get install -y \
-            python3 \
-            && rm -rf /var/lib/apt/lists/*
+          RUN apt-get update && apt-get install -y \
+              python3 \
+              && rm -rf /var/lib/apt/lists/*
 
-        COPY *.deb /tmp/
+          COPY *.deb /tmp/
 
-        RUN apt-get update && \
-            apt-get install -y /tmp/*.deb || \
-            (apt-get install -f -y && apt-get install -y /tmp/*.deb)
+          RUN apt-get update && \
+              apt-get install -y /tmp/*.deb || \
+              (apt-get install -f -y && dpkg -i /tmp/*.deb)
 
-        RUN which cargo-ament-build && cargo-ament-build --version
+          RUN which cargo-ament-build && cargo-ament-build --version
 
-        EOF
+          EOF
 
-        docker build --platform="$PLATFORM" -f Dockerfile.test -t package-tester:${{ matrix.distro }}-${{ matrix.arch }} .
+          docker build --platform="$PLATFORM" -f Dockerfile.test -t package-tester:${{ matrix.distro }}-${{ matrix.arch }} .
