@@ -22,6 +22,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Copy contrib/debian to debian
+      run: cp -r contrib/debian debian
+
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
       with:
