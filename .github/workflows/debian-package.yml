@@ -63,14 +63,16 @@ jobs:
 
           docker build --platform="$PLATFORM" -f Dockerfile.build -t debian-builder:${{ matrix.distro }}-${{ matrix.arch }} .
 
-          # Extract the built packages
+          # Extract the built packages from root directory where dpkg-buildpackage places them
           docker create --name temp-container debian-builder:${{ matrix.distro }}-${{ matrix.arch }}
-          docker cp temp-container:/python3-cargo-ament-build_*.deb . || true
-          docker cp temp-container:/build/../*.deb . || true
+          mkdir -p deb-output
+          docker cp temp-container:/. deb-output/
+          mv deb-output/*.deb . 2>/dev/null || true
+          rm -rf deb-output
           docker rm temp-container
 
       - name: List built packages
-        run: ls -lh *.deb || echo "No .deb files found"
+        run: ls -lh *.deb
 
       - name: Test package installation
         run: |
@@ -91,7 +93,7 @@ jobs:
               apt-get install -y /tmp/*.deb || \
               (apt-get install -f -y && dpkg -i /tmp/*.deb)
 
-          RUN which cargo-ament-build && cargo-ament-build --version
+          RUN which cargo-ament-build && cargo-ament-build --help
 
           EOF
 
