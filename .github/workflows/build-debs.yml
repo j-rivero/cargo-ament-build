@@ -98,7 +98,7 @@ jobs:
               # Run wheel2deb to convert wheel to deb
               mkdir -p output
               /opt/wheel2deb-venv/bin/wheel2deb \
-                --map attrs=python3-attr \
+                --map attrs:attr \
                 -c wheel2deb.yml \
                 -o output \
                 "$WHEEL_FILE"
