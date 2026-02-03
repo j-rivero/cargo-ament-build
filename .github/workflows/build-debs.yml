@@ -95,7 +95,7 @@ jobs:
               /opt/wheel2deb-venv/bin/pip install wheel2deb
 
               # Find the wheel file
-              WHEEL_FILE=$(ls wheels/*.whl | head -1)
+              WHEEL_FILE=$(basename $(ls wheels/*.whl | head -1))
               echo "Processing wheel: $WHEEL_FILE"
 
               # Run wheel2deb to convert wheel to deb
