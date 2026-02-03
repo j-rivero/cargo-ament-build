@@ -1,0 +1,6 @@
+.:
+  maintainer_name: "ROS 2 Rust Working Group"
+  maintainer_email: "ros2-rust@googlegroups.com"
+  extended_desc: |
+    This cargo plugin is a wrapper around cargo build which installs build
+    artifacts in a layout expected by ament and ROS 2 tools.
