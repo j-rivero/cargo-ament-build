@@ -1,9 +1,9 @@
-name: 'Build Debian packages'
+name: "Build Debian packages"
 
 on:
   push:
     branches:
-      - '**wheel2deb**'  # Temporary: remove after testing
+      - "**wheel2deb**" # Temporary: remove after testing
   workflow_run:
     workflows: ["Build binaries"]
     types:
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'Run ID of Build binaries workflow to use'
+        description: "Run ID of Build binaries workflow to use"
         required: false
         type: string
 
@@ -98,10 +98,11 @@ jobs:
               # Run wheel2deb to convert wheel to deb
               mkdir -p output
               /opt/wheel2deb-venv/bin/wheel2deb \
-                --map attrs:attr \
+                convert \
                 -c wheel2deb.yml \
                 -o output \
-                "$WHEEL_FILE"
+                -x wheels \
+                -i "$WHEEL_FILE"
 
               # Build the deb package
               cd output/python3-cargo-ament-build_*/
