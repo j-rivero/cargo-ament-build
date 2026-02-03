@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - "**wheel2deb**" # Temporary: remove after testing
+  pull_request:
+    branches:
+      - main # Temporary: remove after testing
   workflow_run:
     workflows: ["Build binaries"]
     types:
