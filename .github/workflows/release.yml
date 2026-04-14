@@ -51,7 +51,6 @@ jobs:
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
       tag: ${{ !github.event.pull_request && github.ref_name || '' }}
-      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
       publishing: ${{ !github.event.pull_request }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,14 +69,17 @@ jobs:
         with:
           name: cargo-dist-cache
           path: ~/.cargo/bin/dist
-      # sure would be cool if github gave us proper conditionals...
-      # so here's a doubly-nested ternary-via-truthiness to try to provide the best possible
-      # functionality based on whether this is a pull_request, and whether it's from a fork.
-      # (PRs run on the *source* but secrets are usually on the *target* -- that's *good*
-      # but also really annoying to build CI around when it needs secrets to work right.)
       - id: plan
+        shell: bash
+        env:
+          IS_PULL_REQUEST: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
+          dist_args=(plan)
+          if [ "$IS_PULL_REQUEST" != "true" ]; then
+            dist_args=(host --steps=create --tag "$RELEASE_TAG")
+          fi
+          dist "${dist_args[@]}" --output-format=json > plan-dist-manifest.json
           echo "dist ran successfully"
           cat plan-dist-manifest.json
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -110,8 +112,7 @@ jobs:
       # Each member of the matrix has the following arguments:
       #
       # - runner: the github runner
-      # - dist-args: cli flags to pass to dist
-      # - install-dist: expression to run to install dist on the runner
+      # - targets: cargo-dist target triples to build for on that runner
       #
       # Typically there will be:
       # - 1 "global" task that builds universal installers
@@ -122,6 +123,10 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
+      DIST_VERSION: 0.30.4
+      DIST_TAG: ${{ needs.plan.outputs.tag }}
+      TARGETS: ${{ join(matrix.targets, ' ') }}
+      CONTAINER_PACKAGE_MANAGER: ${{ matrix.container && matrix.container.package_manager || '' }}
     steps:
       - name: enable windows longpaths
         run: |
@@ -138,7 +143,15 @@ jobs:
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
       - name: Install dist
-        run: ${{ matrix.install_dist.run }}
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${DIST_VERSION}/cargo-dist-installer.sh" | sh
+      - name: Install dist
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          irm "https://github.com/axodotdev/cargo-dist/releases/download/v$env:DIST_VERSION/cargo-dist-installer.ps1" | iex
       # Get the dist-manifest
       - name: Fetch local artifacts
         uses: actions/download-artifact@v7
@@ -147,12 +160,123 @@ jobs:
           path: target/distrib/
           merge-multiple: true
       - name: Install dependencies
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
         run: |
-          ${{ matrix.packages_install }}
+          set -euo pipefail
+
+          need_cargo_xwin=false
+          need_cargo_zigbuild=false
+          need_musl_tools=false
+
+          for target in $TARGETS; do
+            case "$target" in
+              x86_64-apple-darwin|aarch64-apple-darwin|x86_64-pc-windows-msvc|aarch64-pc-windows-msvc|x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|x86_64-unknown-linux-musl|aarch64-unknown-linux-musl)
+                ;;
+              *)
+                echo "Unexpected dist target: $target" >&2
+                exit 1
+                ;;
+            esac
+
+            case "$target" in
+              *-pc-windows-msvc)
+                need_cargo_xwin=true
+                ;;
+              aarch64-unknown-linux-gnu|aarch64-unknown-linux-musl)
+                need_cargo_zigbuild=true
+                ;;
+            esac
+
+            case "$target" in
+              *-unknown-linux-musl)
+                need_musl_tools=true
+                ;;
+            esac
+          done
+
+          if [ "$RUNNER_OS" = "Linux" ] && [ "$need_musl_tools" = true ] && { [ -z "$CONTAINER_PACKAGE_MANAGER" ] || [ "$CONTAINER_PACKAGE_MANAGER" = "apt" ]; }; then
+            sudo_prefix="sudo "
+            if [ -n "$CONTAINER_PACKAGE_MANAGER" ]; then
+              sudo_prefix=""
+            fi
+            ${sudo_prefix}apt-get update
+            ${sudo_prefix}apt-get install -y musl-tools
+          fi
+
+          install_pip_pkg() {
+            local pkg=$1
+            if command -v "$pkg" > /dev/null 2>&1; then
+              return
+            fi
+            if [ "$RUNNER_OS" = "Linux" ] && ! command -v pip3 > /dev/null 2>&1; then
+              dnf install --assumeyes python3-pip
+              pip3 install --upgrade pip
+            fi
+            pip3 install "$pkg"
+          }
+
+          if [ "$need_cargo_xwin" = true ]; then
+            install_pip_pkg cargo-xwin
+          fi
+
+          if [ "$need_cargo_zigbuild" = true ]; then
+            install_pip_pkg cargo-zigbuild
+          fi
       - name: Build artifacts
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
         run: |
-          # Actually do builds and make zips and whatnot
-          dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
+          set -euo pipefail
+
+          dist_args=(build --print=linkage --output-format=json --artifacts=local)
+          if [ -n "$DIST_TAG" ]; then
+            dist_args+=(--tag "$DIST_TAG")
+          fi
+
+          for target in $TARGETS; do
+            case "$target" in
+              x86_64-apple-darwin|aarch64-apple-darwin|x86_64-pc-windows-msvc|aarch64-pc-windows-msvc|x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|x86_64-unknown-linux-musl|aarch64-unknown-linux-musl)
+                dist_args+=(--target "$target")
+                ;;
+              *)
+                echo "Unexpected dist target: $target" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          dist "${dist_args[@]}" > dist-manifest.json
+          echo "dist ran successfully"
+      - name: Build artifacts
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $allowedTargets = @(
+            'x86_64-apple-darwin',
+            'aarch64-apple-darwin',
+            'x86_64-pc-windows-msvc',
+            'aarch64-pc-windows-msvc',
+            'x86_64-unknown-linux-gnu',
+            'aarch64-unknown-linux-gnu',
+            'x86_64-unknown-linux-musl',
+            'aarch64-unknown-linux-musl'
+          )
+          $distArgs = @('build', '--print=linkage', '--output-format=json', '--artifacts=local')
+          if ($env:DIST_TAG) {
+            $distArgs += '--tag'
+            $distArgs += $env:DIST_TAG
+          }
+
+          foreach ($target in ($env:TARGETS -split ' ' | Where-Object { $_ })) {
+            if ($allowedTargets -notcontains $target) {
+              throw "Unexpected dist target: $target"
+            }
+            $distArgs += '--target'
+            $distArgs += $target
+          }
+
+          & dist @distArgs > dist-manifest.json
           echo "dist ran successfully"
       - id: cargo-dist
         name: Post-build
@@ -186,6 +310,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
+      DIST_TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -207,7 +332,14 @@ jobs:
       - id: cargo-dist
         shell: bash
         run: |
-          dist build ${{ needs.plan.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
+          set -euo pipefail
+
+          dist_args=(build --output-format=json --artifacts=global)
+          if [ -n "$DIST_TAG" ]; then
+            dist_args+=(--tag "$DIST_TAG")
+          fi
+
+          dist "${dist_args[@]}" > dist-manifest.json
           echo "dist ran successfully"
 
           # Parse out what we just built and upload it to scratch storage
@@ -235,6 +367,7 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DIST_TAG: ${{ needs.plan.outputs.tag }}
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.host.outputs.manifest }}
@@ -260,7 +393,14 @@ jobs:
       - id: host
         shell: bash
         run: |
-          dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json
+          set -euo pipefail
+
+          dist_args=(host --steps=upload --steps=release --output-format=json)
+          if [ -n "$DIST_TAG" ]; then
+            dist_args+=(--tag "$DIST_TAG")
+          fi
+
+          dist "${dist_args[@]}" > dist-manifest.json
           echo "artifacts uploaded and released successfully"
           cat dist-manifest.json
           echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -302,6 +442,7 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -320,10 +461,22 @@ jobs:
           rm -f artifacts/*-dist-manifest.json
       - name: Create GitHub Release
         env:
-          PRERELEASE_FLAG: "${{ fromJson(needs.host.outputs.val).announcement_is_prerelease && '--prerelease' || '' }}"
+          IS_PRERELEASE: ${{ fromJson(needs.host.outputs.val).announcement_is_prerelease && 'true' || 'false' }}
           RELEASE_COMMIT: "${{ github.sha }}"
+        shell: bash
         run: |
-          # If we're editing a release in place, we need to upload things ahead of time
-          gh release upload "${{ needs.plan.outputs.tag }}" artifacts/*
+          set -euo pipefail
 
-          gh release edit "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --draft=false
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "Missing release tag" >&2
+            exit 1
+          fi
+
+          # If we're editing a release in place, we need to upload things ahead of time
+          gh release upload "$RELEASE_TAG" artifacts/*
+
+          release_edit_args=(release edit "$RELEASE_TAG" --target "$RELEASE_COMMIT" --draft=false)
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            release_edit_args+=(--prerelease)
+          fi
+          gh "${release_edit_args[@]}"
